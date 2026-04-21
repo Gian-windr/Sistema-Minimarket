@@ -510,11 +510,11 @@ class Database:
 
             # Insertar productos de ejemplo
             productos_ejemplo = [
-                ('PROD0001', 'Arroz Catalán Verde', 'Arroz de grano largo', 3.80, 100, 20, 'activo', None, None, 1, 1, 1),
+                ('PROD0001', 'CHAO FN Tabletas Recubiertas x2und', 'Medicamento', 3.00, 100, 20, 'activo', None, None, 1, 9, 5),
                 ('PROD0002', 'Azúcar Blanca', 'Azúcar refinada', 2.80, 80, 15, 'activo', None, None, 2, 1, 1),
-                ('PROD0003', 'Aceite de Soya VEGA Botella 500ml', 'Aceite de soya', 4.30, 50, 10, 'activo', None, None, 3, 1, 4),
-                ('PROD0004', 'Leche Reconstituida GLORIA Quinua, Kiwicha y Cañihua Lata 390g x6u', 'Leche entera evaporada', 25.20, 60, 15, 'activo', None, None, 4, 4, 5),
-                ('PROD0005', 'Coca Cola 1.5L', 'Gaseosa Coca Cola', 4.50, 40, 10, 'activo', None, None, 6, 2, 4)
+                ('PROD0003', 'Agua de Mesa Sin Gas San Luis Botella 750ml', 'Agua sin gas', 2.00, 50, 10, 'activo', None, None, 3, 2, 8),
+                ('PROD0004', 'Chocolate Vizzio Costa 21g', 'Chocolate', 1.50, 60, 15, 'activo', None, None, 4, 7, 5),
+                ('PROD0005', 'Coca Cola 1.5L', 'Gaseosa Coca Cola', 4.50, 40, 10, 'activo', None, None, 6, 2, 8)
             ]
 
             for producto in productos_ejemplo:
