@@ -185,8 +185,7 @@ class ComprobanteService:
 
         # Buscar en caché
         cur.execute("""
-            SELECT tipo_documento, nombres, apellido_paterno, apellido_materno,
-                   razon_social, direccion
+            SELECT tipo_documento, datos_json, fecha_expiracion
             FROM cache_documentos 
             WHERE numero_documento = ?
         """, (numero,))
@@ -194,20 +193,35 @@ class ComprobanteService:
         row = cur.fetchone()
 
         if row:
-            # Actualizar última consulta
-            cur.execute("""
-                UPDATE cache_documentos 
-                SET ultima_consulta = CURRENT_TIMESTAMP 
-                WHERE numero_documento = ?
-            """, (numero,))
-            conn.commit()
-            conn.close()
-
-            if tipo == 'DNI':
-                nombre_completo = f"{row[1]} {row[2]} {row[3]}".strip()
-                return {'success': True, 'nombre_completo': nombre_completo, 'num_documento': numero, 'tipo': 'boleta', 'origen': 'cache'}
-            else:  # RUC
-                return {'success': True, 'razon_social': row[4], 'direccion': row[5], 'ruc': numero, 'tipo': 'factura', 'origen': 'cache'}
+            # Verificar si el cache ha expirado
+            from datetime import datetime
+            fecha_exp = row[2]
+            if fecha_exp:
+                try:
+                    fecha_expiracion = datetime.strptime(fecha_exp, '%Y-%m-%d %H:%M:%S')
+                    if datetime.now() > fecha_expiracion:
+                        # Cache expirado, eliminar y consultar API
+                        cur.execute("DELETE FROM cache_documentos WHERE numero_documento = ?", (numero,))
+                        conn.commit()
+                        row = None
+                except:
+                    pass
+            
+            if row:
+                # Parsear el JSON almacenado
+                try:
+                    datos_cache = json.loads(row[1])
+                    conn.close()
+                    
+                    if tipo == 'DNI':
+                        nombre_completo = datos_cache.get('nombre_completo', '')
+                        return {'success': True, 'nombre_completo': nombre_completo, 'num_documento': numero, 'tipo': 'boleta', 'origen': 'cache'}
+                    else:  # RUC
+                        return {'success': True, 'razon_social': datos_cache.get('razon_social', ''), 'direccion': datos_cache.get('direccion', ''), 'ruc': numero, 'tipo': 'factura', 'origen': 'cache'}
+                except json.JSONDecodeError:
+                    # Si hay error al parsear, eliminar cache corrupto
+                    cur.execute("DELETE FROM cache_documentos WHERE numero_documento = ?", (numero,))
+                    conn.commit()
 
         # Si no está en caché, consultamos la API
         if tipo == 'DNI':
@@ -223,13 +237,26 @@ class ComprobanteService:
                     apellido_materno = data.get('apellido_materno', '')
                     nombre_completo = data.get('nombre_completo', f"{apellido_paterno} {apellido_materno}, {nombres}".strip())
                     
+                    # Guardar en cache con expiración de 30 días
+                    from datetime import datetime, timedelta
+                    fecha_exp = (datetime.now() + timedelta(days=30)).strftime('%Y-%m-%d %H:%M:%S')
+                    
+                    datos_json = json.dumps({
+                        'nombre_completo': nombre_completo,
+                        'nombres': nombres,
+                        'apellido_paterno': apellido_paterno,
+                        'apellido_materno': apellido_materno
+                    })
+                    
                     cur.execute("""
-                        INSERT INTO cache_documentos (numero_documento, tipo_documento, nombres, apellido_paterno, apellido_materno)
-                        VALUES (?, 'DNI', ?, ?, ?)
-                    """, (numero, nombres, apellido_paterno, apellido_materno))
+                        INSERT OR REPLACE INTO cache_documentos 
+                        (numero_documento, tipo_documento, datos_json, fecha_consulta, fecha_expiracion)
+                        VALUES (?, 'DNI', ?, CURRENT_TIMESTAMP, ?)
+                    """, (numero, datos_json, fecha_exp))
                     conn.commit()
-                except:
-                    pass  # Si ya existe, ignorar
+                except Exception as e:
+                    print(f"Error guardando en cache: {e}")
+                    pass
                 conn.close()
                 
                 return {'success': True, 'nombre_completo': nombre_completo, 'num_documento': numero, 'tipo': 'boleta', 'origen': 'api'}
@@ -240,15 +267,34 @@ class ComprobanteService:
                 return {'success': False, 'error': error}
             if data:
                 try:
+                    razon_social = data.get('nombre_o_razon_social', '')
+                    direccion = data.get('direccion', '')
+                    
+                    # Guardar en cache con expiración de 30 días
+                    from datetime import datetime, timedelta
+                    fecha_exp = (datetime.now() + timedelta(days=30)).strftime('%Y-%m-%d %H:%M:%S')
+                    
+                    datos_json = json.dumps({
+                        'razon_social': razon_social,
+                        'direccion': direccion,
+                        'departamento': data.get('departamento', ''),
+                        'provincia': data.get('provincia', ''),
+                        'distrito': data.get('distrito', ''),
+                        'estado': data.get('estado', ''),
+                        'condicion': data.get('condicion', '')
+                    })
+                    
                     cur.execute("""
-                        INSERT INTO cache_documentos (numero_documento, tipo_documento, razon_social, direccion, departamento, provincia, distrito, estado, condicion)
-                        VALUES (?, 'RUC', ?, ?, ?, ?, ?, ?, ?)
-                    """, (numero, data.get('nombre_o_razon_social', ''), data.get('direccion', ''), data.get('departamento', ''), data.get('provincia', ''), data.get('distrito', ''), data.get('estado', ''), data.get('condicion', '')))
+                        INSERT OR REPLACE INTO cache_documentos 
+                        (numero_documento, tipo_documento, datos_json, fecha_consulta, fecha_expiracion)
+                        VALUES (?, 'RUC', ?, CURRENT_TIMESTAMP, ?)
+                    """, (numero, datos_json, fecha_exp))
                     conn.commit()
-                except:
-                    pass  # Si ya existe, ignorar
+                except Exception as e:
+                    print(f"Error guardando en cache: {e}")
+                    pass
                 conn.close()
-                return {'success': True, 'razon_social': data.get('nombre_o_razon_social', ''), 'direccion': data.get('direccion', ''), 'ruc': numero, 'tipo': 'factura', 'origen': 'api'}
+                return {'success': True, 'razon_social': razon_social, 'direccion': direccion, 'ruc': numero, 'tipo': 'factura', 'origen': 'api'}
 
         conn.close()
         return {'success': False, 'error': 'No se pudo obtener información'}
@@ -365,7 +411,14 @@ class ComprobanteService:
         pdf_sunat = None
         xml_sunat = None
         cdr_sunat = None
+        error_sunat = None
         try:
+            print(f"\n{'='*60}")
+            print(f"📤 INICIANDO EMISIÓN A NUBEFACT/SUNAT")
+            print(f"{'='*60}")
+            print(f"Tipo: {tipo_norm.upper()}")
+            print(f"Venta ID: {venta_id}")
+            
             # Preparar datos del cliente para Nubefact
             cliente_nubefact = {}
             if tipo_norm == 'boleta':
@@ -373,6 +426,8 @@ class ComprobanteService:
                     'dni': num_doc or '00000000',
                     'nombre_completo': nombre_cli or 'Cliente Genérico'
                 }
+                print(f"Cliente: {nombre_cli} (DNI: {num_doc})")
+                print(f"Llamando a emitir_boleta...")
                 success, nubefact_result, error = self.nubefact.emitir_boleta(venta_id, cliente_nubefact)
             else:  # factura
                 cliente_nubefact = {
@@ -380,13 +435,25 @@ class ComprobanteService:
                     'razon_social': razon_social,
                     'direccion': direccion or ''
                 }
+                print(f"Cliente: {razon_social} (RUC: {num_doc})")
+                print(f"Llamando a emitir_factura...")
                 success, nubefact_result, error = self.nubefact.emitir_factura(venta_id, cliente_nubefact)
+            
+            print(f"\n📊 RESULTADO DE NUBEFACT:")
+            print(f"Success: {success}")
+            print(f"Error: {error}")
+            print(f"Result: {nubefact_result}")
             
             if success and nubefact_result:
                 # Extraer enlaces de Nubefact (respuesta directa de la API)
                 pdf_sunat = nubefact_result.get('enlace_del_pdf', '')
                 xml_sunat = nubefact_result.get('enlace_del_xml', '')
                 cdr_sunat = nubefact_result.get('enlace_del_cdr', '')
+                
+                print(f"\n✅ COMPROBANTE EMITIDO EXITOSAMENTE")
+                print(f"PDF: {pdf_sunat}")
+                print(f"XML: {xml_sunat}")
+                print(f"CDR: {cdr_sunat}")
                 
                 # Actualizar comprobante con enlaces de SUNAT
                 conn = db.get_connection()
@@ -399,9 +466,19 @@ class ComprobanteService:
                 conn.commit()
                 conn.close()
             else:
-                print(f"⚠️ No se pudo emitir a SUNAT: {error if 'error' in locals() else 'Error desconocido'}")
+                error_sunat = error
+                print(f"\n❌ ERROR AL EMITIR A SUNAT: {error}")
+                
         except Exception as e:
-            print(f"⚠️ Error al emitir a SUNAT vía Nubefact: {e}")
+            error_sunat = str(e)
+            print(f"\n❌ EXCEPCIÓN AL EMITIR A SUNAT:")
+            print(f"Error: {e}")
+            import traceback
+            traceback.print_exc()
+        
+        print(f"{'='*60}\n")
+        
+        print(f"{'='*60}\n")
 
         return {
             'success': True,
@@ -415,7 +492,8 @@ class ComprobanteService:
             'pdf_sunat': pdf_sunat,
             'xml_sunat': xml_sunat,
             'cdr_sunat': cdr_sunat,
-            'nubefact_result': nubefact_result
+            'nubefact_result': nubefact_result,
+            'error_sunat': error_sunat  # Agregar error para debugging
         }
     
     def _generar_pdf_comprobante(self, codigo, tipo, serie, numero, fecha, num_doc,

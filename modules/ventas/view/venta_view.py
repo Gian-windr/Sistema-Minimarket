@@ -700,6 +700,12 @@ class VentasFrame(QWidget):
                 else:
                     mensaje += f"\n⚠️ Comprobante registrado localmente\n"
                     mensaje += f"No se pudo emitir a SUNAT en este momento\n"
+                    
+                    # Mostrar error específico si existe
+                    error_sunat = resultado.get('error_sunat')
+                    if error_sunat:
+                        mensaje += f"\n📋 Detalle del error:\n{error_sunat}\n"
+                        mensaje += f"\n💡 Revisa la terminal para más información\n"
                 
                 # Crear diálogo personalizado con botón para abrir PDF
                 dialogo = QMessageBox(self)
